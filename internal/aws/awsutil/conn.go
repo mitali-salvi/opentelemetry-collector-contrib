@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -31,7 +32,8 @@ func newHTTPClient(logger *zap.Logger, maxIdle, requestTimeout int, noVerify boo
 		InsecureSkipVerify: noVerify,
 	}
 
-	proxyFunc, err := getProxyFunc(proxyAddress)
+	finalProxyAddress := GetProxyAddress(proxyAddress)
+	proxyURL, err := GetProxyURL(finalProxyAddress)
 	if err != nil {
 		logger.Error("unable to obtain proxy URL", zap.Error(err))
 		return nil, err
@@ -39,7 +41,7 @@ func newHTTPClient(logger *zap.Logger, maxIdle, requestTimeout int, noVerify boo
 	transport := &http.Transport{
 		MaxIdleConnsPerHost: maxIdle,
 		TLSClientConfig:     tls,
-		Proxy:               proxyFunc,
+		Proxy:               http.ProxyURL(proxyURL),
 	}
 
 	// is not enabled by default as we configure TLSClientConfig for supporting SSL to data plane.
@@ -56,19 +58,32 @@ func newHTTPClient(logger *zap.Logger, maxIdle, requestTimeout int, noVerify boo
 	return http, err
 }
 
-// getProxyFunc returns an appropriate proxy function for http.Transport.
-// When no explicit proxyAddress is configured, it delegates to
-// http.ProxyFromEnvironment which correctly respects NO_PROXY.
-// When an explicit proxyAddress is configured, it uses http.ProxyURL.
-func getProxyFunc(proxyAddress string) (func(*http.Request) (*url.URL, error), error) {
-	if proxyAddress == "" {
-		return http.ProxyFromEnvironment, nil
+// GetProxyAddress returns the proxy address from the provided value or HTTPS_PROXY environment variable.
+func GetProxyAddress(proxyAddress string) string {
+	var finalProxyAddress string
+	switch {
+	case proxyAddress != "":
+		finalProxyAddress = proxyAddress
+
+	case proxyAddress == "" && os.Getenv("HTTPS_PROXY") != "":
+		finalProxyAddress = os.Getenv("HTTPS_PROXY")
+	default:
+		finalProxyAddress = ""
 	}
-	proxyURL, err := url.Parse(proxyAddress)
-	if err != nil {
-		return nil, err
+	return finalProxyAddress
+}
+
+// GetProxyURL parses and returns the proxy URL from the provided address.
+func GetProxyURL(finalProxyAddress string) (*url.URL, error) {
+	var proxyURL *url.URL
+	var err error
+	if finalProxyAddress != "" {
+		proxyURL, err = url.Parse(finalProxyAddress)
+	} else {
+		proxyURL = nil
+		err = nil
 	}
-	return http.ProxyURL(proxyURL), nil
+	return proxyURL, err
 }
 
 func GetAWSConfig(ctx context.Context, logger *zap.Logger, settings *AWSSessionSettings) (aws.Config, error) {
