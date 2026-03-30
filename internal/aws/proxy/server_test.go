@@ -147,6 +147,20 @@ func TestHandlerSignerErrorsOut(t *testing.T) {
 
 	t.Setenv(regionEnvVarName, regionEnvVar)
 
+	credErr := errors.New("mock credential retrieval error")
+	origNewAWSConfig := newAWSConfig
+	newAWSConfig = func(ctx context.Context, roleArn, region string, log *zap.Logger) (aws.Config, error) {
+		cfg, err := origNewAWSConfig(ctx, roleArn, region, log)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.Credentials = aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
+			return aws.Credentials{}, credErr
+		})
+		return cfg, nil
+	}
+	t.Cleanup(func() { newAWSConfig = origNewAWSConfig })
+
 	cfg := DefaultConfig()
 	tcpAddr := testutil.GetAvailableLocalAddress(t)
 	cfg.Endpoint = tcpAddr
@@ -162,8 +176,8 @@ func TestHandlerSignerErrorsOut(t *testing.T) {
 	logs := recordedLogs.All()
 	lastEntry := logs[len(logs)-1]
 	assert.Contains(t, lastEntry.Message, "Unable to retrieve credentials", "expected log message")
-	assert.Contains(t, lastEntry.Context[0].Interface.(error).Error(),
-		"no EC2 IMDS role found", "expected error")
+	assert.EqualError(t, lastEntry.Context[0].Interface.(error),
+		credErr.Error(), "expected error")
 }
 
 func TestTCPEndpointInvalid(t *testing.T) {
