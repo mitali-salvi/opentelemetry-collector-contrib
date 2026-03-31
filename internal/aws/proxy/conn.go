@@ -173,8 +173,7 @@ func proxyServerTransport(cfg *Config) (*http.Transport, error) {
 		InsecureSkipVerify: cfg.TLS.Insecure,
 	}
 
-	proxyAddr := awsutil.GetProxyAddress(cfg.ProxyAddress)
-	proxyURL, err := awsutil.GetProxyURL(proxyAddr)
+	proxyFunc, err := awsutil.GetProxyFunc(cfg.ProxyAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +181,7 @@ func proxyServerTransport(cfg *Config) (*http.Transport, error) {
 	return &http.Transport{
 		MaxIdleConnsPerHost: remoteProxyMaxIdleConnsPerHost,
 		IdleConnTimeout:     idleConnTimeout,
-		Proxy:               http.ProxyURL(proxyURL),
+		Proxy:               proxyFunc,
 		TLSClientConfig:     tlsCfg,
 
 		// If not disabled the transport will add a gzip encoding header

@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -295,4 +296,47 @@ func TestGetProxyURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNoProxyIsRespectedWhenUsingEnvProxy(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://mitmproxy:8080")
+	t.Setenv("NO_PROXY", ".amazonaws.com,localhost,127.0.0.1")
+
+	logger := zap.NewNop()
+
+	client, err := newHTTPClient(logger, 8, 30, false, "")
+	require.NoError(t, err)
+
+	transport, ok := client.Transport.(*http.Transport)
+	require.True(t, ok, "Transport should be *http.Transport")
+	require.NotNil(t, transport.Proxy, "Proxy function should not be nil")
+
+	req, err := http.NewRequest(http.MethodGet, "https://logs.eu-west-1.amazonaws.com/", http.NoBody)
+	require.NoError(t, err)
+
+	proxyURL, err := transport.Proxy(req)
+	assert.NoError(t, err)
+	assert.Nil(t, proxyURL,
+		"Proxy should be nil for hosts matching NO_PROXY, but got: %v — "+
+			"this proves NO_PROXY is not respected", proxyURL)
+}
+
+func TestProxyIsUsedForNonExcludedHosts(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://mitmproxy:8080")
+	t.Setenv("NO_PROXY", ".amazonaws.com,localhost,127.0.0.1")
+
+	logger := zap.NewNop()
+	client, err := newHTTPClient(logger, 8, 30, false, "")
+	require.NoError(t, err)
+
+	transport, ok := client.Transport.(*http.Transport)
+	require.True(t, ok)
+
+	req, err := http.NewRequest(http.MethodGet, "https://example.com/", http.NoBody)
+	require.NoError(t, err)
+
+	proxyURL, err := transport.Proxy(req)
+	assert.NoError(t, err)
+	assert.NotNil(t, proxyURL, "Proxy should be used for hosts NOT in NO_PROXY")
+	assert.Equal(t, "http://mitmproxy:8080", proxyURL.String())
 }
