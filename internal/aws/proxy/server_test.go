@@ -154,7 +154,7 @@ func TestHandlerSignerErrorsOut(t *testing.T) {
 		if err != nil {
 			return cfg, err
 		}
-		cfg.Credentials = aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
+		cfg.Credentials = aws.CredentialsProviderFunc(func(_ context.Context) (aws.Credentials, error) {
 			return aws.Credentials{}, credErr
 		})
 		return cfg, nil
